@@ -1,5 +1,3 @@
-# Habits
-
 # Protocole
 
 Tracker d'habitudes personnel et gamifié : XP, niveaux, points de vie, coups critiques, succès, boutique de thèmes et tableau de bord d'analyse. L'app fonctionne entièrement dans le navigateur, hors ligne, sans compte ni serveur. Les données restent sur ton téléphone.
