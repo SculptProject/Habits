@@ -1,7 +1,7 @@
 // Service worker de Protocole : rend l'app utilisable hors ligne.
 // Après chaque modification de index.html, augmente le numéro de VERSION
 // pour que les téléphones récupèrent la nouvelle version.
-const VERSION = 'protocole-v1';
+const VERSION = 'protocole-v2';
 const CORE = [
   './',
   './index.html',

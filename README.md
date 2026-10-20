@@ -40,6 +40,11 @@ Les données sont stockées dans le navigateur du téléphone. Elles sont effac�
 
 Prends l'habitude d'exporter une sauvegarde chaque semaine (**Réglages > Sauvegarde > Exporter**) et de la ranger dans tes fichiers, iCloud ou Google Drive.
 
+## Historique
+
+- **v2** : dispenses encadrées, versions minimales, ancrages, moments de la journée, bonus de retour, paliers de série, objectif hebdomadaire, nouveau départ, bilan d'automatisme, récompense des écarts évités, page « La science derrière l'app ».
+- **v1** : première version.
+
 ## Mettre à jour l'app
 
 1. Remplace `index.html` dans le dépôt par la nouvelle version.
@@ -56,3 +61,27 @@ Prends l'habitude d'exporter une sauvegarde chaque semaine (**Réglages > Sauveg
 - Objectif hebdomadaire : bonus de 30 XP par niveau de difficulté s'il est atteint, 5 PV perdus par séance manquante le dimanche soir.
 - À 0 PV, la coque est détruite : tu perds un niveau et la moitié de tes crédits.
 - Un bouclier en stock absorbe automatiquement une journée de dégâts.
+- Écart évité : chaque jour tenu sur un protocole à éviter rapporte 5 XP par niveau de difficulté à la clôture.
+- Retour : après un oubli ou une dispense, la validation suivante rapporte le double.
+- Paliers de série (3, 7, 14, 21, 30, 50, 66, 100 jours et plus) : bonus d'XP.
+
+## Dispenses
+
+Pour passer exceptionnellement un protocole, touche son nom puis **Dispenser aujourd'hui**. L'option est volontairement un peu cachée : un léger frein limite l'usage par réflexe.
+
+- 2 dispenses par semaine au maximum, renouvelées le lundi.
+- Une seule par protocole et par semaine, et jamais deux fois de suite sur le même protocole.
+- Impossible pendant les 7 premiers jours d'un protocole, juste après l'avoir oublié, ou pour un protocole à éviter.
+- Coût croissant : ◈ 25 pour la première de la semaine, ◈ 50 pour la seconde.
+- Raison et plan de rattrapage (« quand et où ») obligatoires. Le plan s'affiche le jour suivant avec le bonus de retour ×2.
+- Avant de dispenser, l'app propose la **version minimale** du protocole (si tu en as défini une) : la série continue, à 50 % de l'XP.
+
+## Autres outils
+
+- **Ancrage** : « Après mon café, je médite ». Le protocole s'affiche avec son déclencheur.
+- **Moments de la journée** : la liste du jour se range en Matin, Après-midi, Soir.
+- **Objectif de la semaine** : ta réussite de la semaine précédente plus 5 points, affiché sous le cockpit.
+- **Nouveau départ** : un message le lundi et le premier du mois.
+- **Bilan d'automatisme** : une fois par semaine, tu notes de 1 à 7 à quel point chaque protocole se fait sans y penser. Au-delà de 6/7 avec une bonne régularité, le protocole est marqué « Ancré ».
+
+La liste complète des études utilisées est dans l'app : **Réglages > La science derrière l'app**.

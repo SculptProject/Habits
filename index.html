@@ -435,6 +435,25 @@ body{background-image:radial-gradient(70% 45% at 100% -10%,rgba(var(--acc-rgb),.
 .modal-bg{background:rgba(10,12,30,.45)}
 .nav{background:var(--panel);border-top:1px solid var(--line)}
 .sw{box-shadow:inset 0 0 0 2px rgba(255,255,255,.25)}
+
+.row.skipped{opacity:.55}
+.rm .rb{color:var(--xp);font-weight:600}
+.rm .ml{color:var(--acc)}
+.rm .anc{color:var(--hp);font-weight:500}
+.mom{font-size:12px;color:var(--muted);margin:14px 4px 6px;text-transform:none}
+.wk{margin:12px 4px 0}
+.wk-l{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px}
+.wk-l b{color:var(--text);font-weight:600}
+.wk-t{height:4px;border-radius:99px;background:var(--line);position:relative}
+.wk-t i{position:absolute;left:0;top:0;bottom:0;border-radius:99px;background:var(--acc)}
+.wk-t b{position:absolute;top:-4px;width:2px;height:12px;border-radius:2px;background:var(--text);transform:translateX(-1px)}
+.fs{display:flex;gap:10px;align-items:flex-start;padding:14px 10px 14px 16px;margin-bottom:12px;border-radius:20px;background:linear-gradient(140deg,rgba(var(--acc-rgb),.18),transparent 70%),var(--panel);box-shadow:var(--shadow)}
+.fs b{display:block;font-weight:600}.fs span{font-size:13px;color:var(--muted)}.fs .x{flex:none;width:32px;height:32px;font-size:22px}
+.au{padding:10px 0;border-top:1px solid var(--line)}
+.au>div:first-child{font-weight:500;margin-bottom:8px}
+.au-s{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.au-s button{height:36px;border-radius:12px;background:var(--bg2);color:var(--muted);font-weight:500}
+.au-s button.on{background:var(--acc);color:#fff}
 @media (max-width:370px){.hero{grid-template-columns:120px 1fr}.ring-wrap,.ring{width:120px;height:120px}.ring-c b{font-size:30px}.bg-grid{grid-template-columns:1fr 1fr}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -486,12 +505,13 @@ const IC={
 function fresh(){const t=todayKey();return{v:1,created:t,habits:[],log:{},awards:{},
   player:{xp:0,hp:100,cr:0,peak:1},inv:{shield:1},up:{hull:0,amp:0,crit:0},
   skins:['cyan'],skin:'cyan',badges:{},
-  c:{checks:0,crits:0,jackpots:0,shields:0,earned:0,ko:0,weekly:0,perfects:0},
+  c:{checks:0,crits:0,jackpots:0,shields:0,earned:0,ko:0,weekly:0,perfects:0,skips:0,rebounds:0,minis:0},
+  skips:{},mini:{},auto:{},lastAuto:null,autoSnooze:null,wgoal:{},miles:{},fsDismiss:null,
   lastProcessed:addDays(t,-1),hist:{},settings:{sound:true,vibe:true,theme:'auto'},updatedAt:0}}
 let S;
 function migrate(o){const f=fresh();const s=Object.assign(f,o);
   for(const k of['player','inv','up','c','settings'])s[k]=Object.assign({},fresh()[k],o[k]||{});
-  s.habits=(s.habits||[]).map(h=>Object.assign({type:'bool',target:1,step:1,unit:'',freq:'daily',days:[1,2,3,4,5],times:3,diff:2,why:'',icon:'⚡'},h));
+  s.habits=(s.habits||[]).map(h=>Object.assign({type:'bool',target:1,step:1,unit:'',freq:'daily',days:[1,2,3,4,5],times:3,diff:2,why:'',icon:'⚡',moment:'any',anchor:'',mini:''},h));
   return s}
 function loadLocal(){try{const r=localStorage.getItem(KEY);if(r){S=migrate(JSON.parse(r));return}}catch(e){}S=fresh()}
 function save(){S.updatedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}schedulePush()}
@@ -500,9 +520,29 @@ function save(){S.updatedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringi
 const active=()=>S.habits.filter(h=>!h.archived);
 const find=id=>S.habits.find(h=>h.id===id);
 const alive=(h,k)=>h.created<=k&&(!h.archivedAt||k<h.archivedAt);
-function sched(h,k){if(!alive(h,k))return false;if(h.freq==='daily')return true;if(h.freq==='days')return h.days.includes(dow(k));return false}
+function schedRaw(h,k){if(!alive(h,k))return false;if(h.freq==='daily')return true;if(h.freq==='days')return h.days.includes(dow(k));return false}
+const isSkipped=(h,k)=>!!(S.skips[k]&&S.skips[k][h.id]);
+const isMini=(h,k)=>!!(S.mini[k]&&S.mini[k][h.id]);
+function sched(h,k){return schedRaw(h,k)&&!isSkipped(h,k)}
+function prevSched(h,k){for(let i=1;i<=14;i++){const d=addDays(k,-i);if(d<h.created)return null;if(schedRaw(h,d))return d}return null}
+function rebound(h,k){if(h.type==='avoid'||h.freq==='weekly')return false;const p=prevSched(h,k);return !!p&&(isSkipped(h,p)||!done(h,p))}
+const MAX_SKIPS=2;
+function weekSkips(ws){let n=0;for(let i=0;i<7;i++){const k=addDays(ws,i);if(S.skips[k])n+=Object.keys(S.skips[k]).length}return n}
+const skipCost=()=>25*(weekSkips(weekStart(todayKey()))+1);
+function canSkip(h,k){
+  if(h.type==='avoid')return{ok:false,why:'Un protocole à éviter ne se met jamais en pause. Une permission de craquer est exactement ce que le cerveau retient : le premier écart autorisé ouvre la porte au suivant (effet de transgression de Marlatt).'};
+  if(h.freq==='weekly')return{ok:false,why:'Un objectif hebdomadaire a déjà sa propre marge : tu choisis tes jours.'};
+  if(done(h,k))return{ok:false,why:'Ce protocole est déjà validé aujourd’hui.'};
+  if(daysBetween(h.created,k)<7)return{ok:false,why:'Aucune dispense pendant les 7 premiers jours. C’est au début que chaque répétition renforce le plus l’automatisme (Lally et al., 2010).'};
+  const p=prevSched(h,k);
+  if(p&&isSkipped(h,p))return{ok:false,why:'Ce protocole a déjà été dispensé la dernière fois. Jamais deux fois de suite : c’est la deuxième absence qui casse une habitude, pas la première.'};
+  if(p&&!done(h,p))return{ok:false,why:'Tu as manqué ce protocole la dernière fois. Aujourd’hui il compte double : bonus de retour ×2 si tu le fais.'};
+  for(let i=1;i<7;i++){const d=addDays(k,-i);if(isSkipped(h,d))return{ok:false,why:'Ce protocole a déjà été dispensé il y a moins de 7 jours. Une dispense par protocole et par semaine au maximum.'}}
+  const n=weekSkips(weekStart(k));if(n>=MAX_SKIPS)return{ok:false,why:'Tes 2 dispenses de la semaine sont utilisées. Le quota revient lundi.'};
+  if(S.player.cr<skipCost())return{ok:false,why:`Une dispense coûte ◈ ${skipCost()} et tu as ◈ ${S.player.cr}. Une marge de secours n’aide que si elle a un prix.`};
+  return{ok:true}}
 const val=(h,k)=>(S.log[k]&&S.log[k][h.id])||0;
-function done(h,k){const v=val(h,k);if(h.type==='avoid')return !(v>=1);if(h.type==='qty')return v>=h.target-1e-9;return v>=1}
+function done(h,k){const v=val(h,k);if(h.type==='avoid')return !(v>=1);if(isMini(h,k))return true;if(h.type==='qty')return v>=h.target-1e-9;return v>=1}
 const dayHabits=k=>S.habits.filter(h=>h.freq!=='weekly'&&sched(h,k));
 function dayStat(k){const hs=dayHabits(k);const d=hs.filter(h=>done(h,k)).length;return{n:hs.length,d,p:hs.length?d/hs.length:null}}
 function weekCount(h,ws){let c=0;for(let i=0;i<7;i++){const k=addDays(ws,i);if(alive(h,k)&&done(h,k))c++}return c}
@@ -517,7 +557,7 @@ function streakInfo(h){const t=todayKey();let run=0,best=0,g=0;
 function strength(h){const t=todayKey();let s=0,g=0;
   if(h.freq==='weekly'){let ws=weekStart(h.created);const cw=weekStart(t);
     while(ws<=cw&&g++<600){const c=weekCount(h,ws);if(ws===cw&&c<h.times)break;s=s*.75+.25*Math.min(1,c/h.times);ws=addDays(ws,7)}return s}
-  let k=h.created;while(k<=t&&g++<4000){if(sched(h,k)){const d=done(h,k);if(k===t&&!d)break;s=s*.93+.07*(d?1:0)}k=addDays(k,1)}return s}
+  let k=h.created;while(k<=t&&g++<4000){if(sched(h,k)){const d=done(h,k);if(k===t&&!d)break;s=s*.93+.07*(d?(isMini(h,k)?.7:1):0)}k=addDays(k,1)}return s}
 function habitRate(h,n){const t=todayKey();let a=0,b=0;
   if(h.freq==='weekly'){const cw=weekStart(t);for(let i=1;i<=Math.ceil(n/7);i++){const ws=addDays(cw,-7*i);if(h.created>addDays(ws,6))continue;a++;if(weekCount(h,ws)>=h.times)b++}
     const c=weekCount(h,cw);if(c>=h.times){a++;b++}return a?b/a:null}
@@ -549,10 +589,11 @@ function ko(){const L=lvl(S.player.xp).L;const nl=Math.max(1,L-1);S.player.xp=lv
 function roll(){const r=Math.random();const crit=.08+.05*S.up.crit;if(r<.012)return 10;if(r<.012+crit)return 3;return 1}
 
 function award(k,h,on){S.awards[k]=S.awards[k]||{};let a=S.awards[k][h.id];
-  if(on){if(!a||a.hp){const st=streakInfo(h).cur;const mult=1+Math.min(st,30)*.03;const amp=1+.1*S.up.amp;const m=roll();
-      a={xp:Math.round(10*h.diff*mult*amp*m),cr:Math.round(3*h.diff*m),m,on:false};S.awards[k][h.id]=a}
-    if(!a.on){a.on=true;gainXp(a.xp);gainCr(a.cr);S.c.checks++;if(a.m===3)S.c.crits++;if(a.m===10)S.c.jackpots++;return a}}
-  else if(a&&a.on){a.on=false;gainXp(-a.xp,true);gainCr(-a.cr);S.c.checks=Math.max(0,S.c.checks-1);if(a.m===3)S.c.crits--;if(a.m===10)S.c.jackpots--}
+  if(on){const mi=isMini(h,k);if(!a||a.hp||(!a.on&&!!a.mini!==mi)){const st=streakInfo(h).cur;const mult=1+Math.min(st,30)*.03;const amp=1+.1*S.up.amp;const m=(a&&!a.hp&&a.m)||roll();
+      const rb=rebound(h,k);const f=(mi?.5:1)*(rb?2:1);
+      a={xp:Math.round(10*h.diff*mult*amp*m*f),cr:Math.round(3*h.diff*m*f),m,rb,mini:mi,on:false};S.awards[k][h.id]=a}
+    if(!a.on){a.on=true;gainXp(a.xp);gainCr(a.cr);S.c.checks++;if(a.m===3)S.c.crits++;if(a.m===10)S.c.jackpots++;if(a.rb)S.c.rebounds++;if(a.mini)S.c.minis++;return a}}
+  else if(a&&a.on){a.on=false;gainXp(-a.xp,true);gainCr(-a.cr);S.c.checks=Math.max(0,S.c.checks-1);if(a.m===3)S.c.crits--;if(a.m===10)S.c.jackpots--;if(a.rb)S.c.rebounds--;if(a.mini)S.c.minis--}
   return null}
 function weeklyBonus(h,ws){const key='W'+ws;S.awards[key]=S.awards[key]||{};let a=S.awards[key][h.id];const met=weekCount(h,ws)>=h.times;
   if(met&&!(a&&a.on)){a={xp:30*h.diff,cr:8*h.diff,on:true};S.awards[key][h.id]=a;gainXp(a.xp);gainCr(a.cr);S.c.weekly++;return a}
@@ -563,18 +604,18 @@ function perfectCheck(k){const st=dayStat(k);S.awards[k]=S.awards[k]||{};let a=S
 
 /* ============ Clôture des journées passées ============ */
 function processDays(){const t=todayKey();if(S.lastProcessed>=addDays(t,-1))return null;
-  let k=addDays(S.lastProcessed,1);const R={days:0,dmg:0,xp:0,shield:0,ko:0,miss:{},weekly:[],perfect:0,heal:0};let g=0;
+  let k=addDays(S.lastProcessed,1);const R={days:0,dmg:0,xp:0,shield:0,ko:0,miss:{},weekly:[],perfect:0,heal:0,held:0};let g=0;
   while(k<t&&g++<400){R.days++;let dmg=0;
-    for(const h of dayHabits(k)){if(h.type==='avoid')continue;if(!done(h,k)){dmg+=6*h.diff;R.miss[h.id]=(R.miss[h.id]||0)+1}}
+    for(const h of dayHabits(k)){if(h.type==='avoid'){if(done(h,k))R.held+=5*h.diff;continue}if(!done(h,k)){dmg+=6*h.diff;R.miss[h.id]=(R.miss[h.id]||0)+1}}
     if(dow(k)===0){const ws=weekStart(k);for(const h of S.habits.filter(x=>x.freq==='weekly'&&alive(x,k)&&x.created<=ws)){const c=weekCount(h,ws);const m=Math.max(0,h.times-c);if(m){dmg+=5*h.diff*m;R.weekly.push({icon:h.icon,name:h.name,c,t:h.times})}}}
     const st=dayStat(k);if(st.n>0&&st.d===st.n){heal(4);R.heal+=4;R.perfect++}
     dmg=Math.min(dmg,50);
     if(dmg>0){if(S.inv.shield>0){S.inv.shield--;S.c.shields++;R.shield++}
       else{R.dmg+=dmg;R.xp+=dmg*3;gainXp(-dmg*3,true);if(hurt(dmg))R.ko++}}
     S.hist[k]={p:st.p,hp:S.player.hp};k=addDays(k,1)}
-  S.lastProcessed=addDays(t,-1);return R}
+  if(R.held)gainXp(R.held,true);S.lastProcessed=addDays(t,-1);return R}
 function runProcess(){const R=processDays();if(!R||!S.habits.length)return;checkBadges();save();
-  if(R.dmg||R.shield||R.weekly.length||R.perfect||Object.keys(R.miss).length)showReport(R)}
+  if(R.dmg||R.shield||R.weekly.length||R.perfect||R.held||Object.keys(R.miss).length)showReport(R)}
 function showReport(R){const items=[];
   const miss=Object.entries(R.miss);
   if(miss.length)items.push(`<li>Protocoles manqués : ${miss.map(([id,n])=>{const h=find(id);return h?esc(h.icon+' '+h.name)+(n>1?' ×'+n:''):''}).join(', ')}</li>`);
@@ -582,6 +623,8 @@ function showReport(R){const items=[];
   if(R.shield)items.push(`<li>🛡 ${R.shield>1?R.shield+' boucliers ont':'Un bouclier a'} absorbé les dégâts.</li>`);
   if(R.dmg)items.push(`<li class="bad">Dégâts subis : −${R.dmg} PV et −${R.xp} XP</li>`);
   if(R.perfect)items.push(`<li class="ok">Jour parfait : +${R.heal} PV réparés</li>`);
+  if(R.held)items.push(`<li class="ok">Écarts évités : +${R.held} XP</li>`);
+  if(miss.length)items.push(`<li>Demain, ces protocoles comptent double : bonus de retour ×2.</li>`);
   const bad=R.dmg>0;
   queueCelebrate(`<div class="cel${bad?' badk':''}"><div class="big">${bad?'−'+R.dmg:'✓'}</div><h3>Rapport de clôture</h3><p>${R.days>1?R.days+' journées clôturées depuis ta dernière visite.':'Journée d’hier clôturée.'}</p><ul class="rep">${items.join('')}</ul><button class="btn wide" data-a="close">${bad?'Compris, on se rattrape':'Continuer'}</button></div>`)}
 
@@ -612,6 +655,10 @@ const BADGES=[
  {id:'h5',i:'🧩',n:'Architecte',d:'5 protocoles actifs',t:()=>active().length>=5},
  {id:'up',i:'🔧',n:'Ingénieur',d:'Acheter une amélioration',t:s=>s.up.hull+s.up.amp+s.up.crit>=1},
  {id:'sk3',i:'🎨',n:'Collectionneur',d:'Posséder 3 thèmes',t:s=>s.skins.length>=3},
+ {id:'rb5',i:'🪃',n:'Rebond',d:'Revenir 5 fois après un oubli ou une dispense',t:s=>s.c.rebounds>=5},
+ {id:'pl3',i:'🧭',n:'Stratège',d:'3 protocoles avec un ancrage « Après… »',t:()=>active().filter(h=>h.anchor).length>=3},
+ {id:'au1',i:'🧠',n:'Pilote automatique',d:'Un protocole noté 6/7 en automatisme ou plus',t:()=>active().some(h=>autoLast(h)>=6)},
+ {id:'ns30',i:'🪨',n:'Sans filet',d:'30 jours sans aucune dispense',t:s=>{const t=todayKey();if(daysBetween(s.created,t)<30)return false;for(let i=0;i<30;i++)if(s.skips[addDays(t,-i)]&&Object.keys(s.skips[addDays(t,-i)]).length)return false;return true}},
 ];
 function checkBadges(){for(const b of BADGES){if(S.badges[b.id])continue;let ok=false;try{ok=b.t(S)}catch(e){}
   if(ok){S.badges[b.id]=todayKey();gainXp(25);toast(`${b.i} Succès débloqué : ${b.n} (+25 XP)`,'crit');SFX.badge();NEWBADGE=true}}}
@@ -678,20 +725,28 @@ function clockHtml(){const c=clockInfo();const st=dayStat(todayKey());const left
 function hero(st){const P=S.player,L=lvl(P.xp),mh=maxHp(),hp=P.hp/mh,ps=perfStreak();const hc=hp>.6?'var(--hp)':hp>.3?'var(--warn)':'var(--bad)';
   const c=clockInfo();const urgent=st.n>st.d&&c.h<3;
   return `<section class="hero${hp<.3?' alarm':''}">
-  <div class="ring-wrap">${ring(st.n?st.p:0,hp)}<div class="ring-c"><b>${st.n?Math.round(st.p*100):'—'}<small>${st.n?'%':''}</small></b><span>${st.n?`${st.d}/${st.n} validés`:'Repos'}</span></div></div>
+  <div class="ring-wrap">${ring(st.n?st.p:0,hp)}<div class="ring-c"><b>${st.n?Math.round(st.p*100):'—'}<small>${st.n?'%':''}</small></b><span>${st.n?(st.n-st.d===1?'plus qu’un !':`${st.d}/${st.n} validés`):'Repos'}</span></div></div>
   <div class="hud"><div class="lv"><span class="lv-n">Niv. ${L.L}</span><span class="lv-r">${rank(L.L)}</span></div>
   ${bar('XP',L.into,L.need,'xp')}${bar('PV',P.hp,mh,'hp',` style="--hpc:${hc}"`)}
-  <div class="chips"><span title="Boucliers">🛡 ${S.inv.shield}</span><span title="Série de jours parfaits">◆ ${ps.cur} j parfait${ps.cur>1?'s':''}</span></div></div>
+  <div class="chips"><span title="Boucliers">🛡 ${S.inv.shield}</span><span title="Série de jours parfaits">◆ ${ps.cur} j parfait${ps.cur>1?'s':''}</span><span title="Dispenses restantes cette semaine">⏸ ${MAX_SKIPS-weekSkips(weekStart(todayKey()))}/${MAX_SKIPS}</span></div></div>
   <div class="clock${urgent?' urgent':''}" id="clock">${clockHtml()}</div></section>`}
 
-function row(h,k,wk){const d=done(h,k),v=val(h,k),s=streakInfo(h);let ctrl='',meta=[],prog='';
+const MIL=[3,7,14,21,30,50,66,100,150,200,365];
+const autoLast=h=>{const a=S.auto[h.id];return a&&a.length?a[a.length-1].v:0};
+function row(h,k,wk){if(isSkipped(h,k)){const sk=S.skips[k][h.id];return `<div class="row skipped"><span class="ico">${esc(h.icon)}</span><div class="rt" data-a="detail" data-id="${h.id}"><div class="rn">${esc(h.name)}</div><div class="rm"><span>Dispensé : ${esc(sk.reason)}</span><span>Rattrapage : ${esc(sk.plan)}</span></div></div><button class="slip" data-a="unskip" data-id="${h.id}">Annuler</button></div>`}
+  const d=done(h,k),v=val(h,k),s=streakInfo(h);let ctrl='',meta=[],prog='';
   if(h.type==='bool')ctrl=`<button class="chk${d?' on':''}" data-a="tog" data-id="${h.id}" aria-pressed="${d}" aria-label="Valider ${esc(h.name)}">${d?IC.check:''}</button>`;
   else if(h.type==='qty'){prog=`<i class="prog" style="width:${clamp(v/h.target,0,1)*100}%"></i>`;
     ctrl=`<div class="qty"><button class="qb" data-a="dec" data-id="${h.id}" aria-label="Retirer">−</button><span class="qv"><b>${fnum(v)}</b><small>/ ${fnum(h.target)} ${esc(h.unit)}</small></span><button class="qb plus${d?' on':''}" data-a="inc" data-id="${h.id}" aria-label="Ajouter">${d?IC.check:'+'}</button></div>`}
   else{const sl=v>=1;ctrl=`<button class="slip${sl?' on':''}" data-a="slip" data-id="${h.id}">${sl?'Annuler':'J’ai craqué'}</button>`;
     meta.push(sl?`<em class="bad">Échec, −${8*h.diff} PV</em>`:`<em class="ok">Tenu</em>`)}
   if(wk){const c=weekCount(h,weekStart(k));meta.unshift(`<span><span class="pips">${Array.from({length:h.times},(_,i)=>`<i class="${i<c?'on':''}"></i>`).join('')}</span>${c}/${h.times} cette semaine</span>`)}
+  if(h.anchor)meta.unshift(`<span>↳ après ${esc(h.anchor)}</span>`);
+  if(!d&&!wk&&rebound(h,k)){const p=prevSched(h,k);const pl=p&&isSkipped(h,p)?S.skips[p][h.id].plan:'';meta.unshift(`<em class="rb">Retour ×2</em>${pl?`<span>Plan : ${esc(pl)}</span>`:''}`)}
+  if(isMini(h,k))meta.push('<span>Version minimale</span>');
   if(s.cur>0)meta.push(`<span class="stk">${IC.chev}${s.cur} ${s.unit}</span>`);
+  if(!wk&&h.type!=='avoid'){const m=MIL.find(x=>x>s.cur);if(m&&m-s.cur<=3&&s.cur>0)meta.push(`<span class="ml">palier ${m} dans ${m-s.cur} j</span>`)}
+  if(autoLast(h)>=6&&strength(h)>=.8)meta.push('<span class="anc">Ancré</span>');
   meta.push(`<span class="dif" title="Difficulté">${'●'.repeat(h.diff)}${'○'.repeat(3-h.diff)}</span>`);
   const cls=h.type==='avoid'?(v>=1?' failed':''):(d?' done':'');
   return `<div class="row${cls}">${prog}<button class="ico" data-a="detail" data-id="${h.id}" aria-label="Statistiques de ${esc(h.name)}">${esc(h.icon)}</button><div class="rt" data-a="detail" data-id="${h.id}"><div class="rn">${esc(h.name)}</div><div class="rm">${meta.join('')}</div></div>${ctrl}</div>`}
@@ -715,22 +770,35 @@ function vOnboard(){return `${header()}<section class="intro"><h2>Ton cockpit es
   <section class="sec"><div class="sec-h"><h2>Modèles pour démarrer</h2></div><div class="tpl">${TPL.map((t,i)=>`<button data-a="tpl" data-i="${i}"><span>${t.icon}</span>${esc(t.name)}<small>${typeTxt(Object.assign({target:1,unit:''},t))}, ${freqTxt(Object.assign({times:3,days:[]},t)).toLowerCase()}</small></button>`).join('')}</div>
   <button class="btn wide" data-a="new">Créer un protocole</button></section>`}
 
+function ensureWeekGoal(){const t=todayKey(),ws=weekStart(t);if(S.wgoal[ws]||!S.habits.length)return false;
+  const prev=ws>S.created?rangeRate(addDays(ws,-7),addDays(ws,-1)):null;
+  const target=prev==null?.8:clamp(Math.ceil((prev+.05)*20)/20,.5,1);S.wgoal[ws]={target,prev};return true}
+function weekLine(){const t=todayKey(),ws=weekStart(t),g=S.wgoal[ws];if(!g)return '';const r=rangeRate(ws,t);const p=r==null?0:r;
+  return `<div class="wk"><div class="wk-l"><span>Cette semaine : <b>${pct(r)}</b></span><span>objectif ${pct(g.target)}</span></div><div class="wk-t"><i style="width:${p*100}%"></i><b style="left:${g.target*100}%"></b></div></div>`}
+function freshStart(){const t=todayKey();if(S.fsDismiss===t||S.created===t)return '';const d=parse(t);const mon=dow(t)===1,first=d.getDate()===1;if(!mon&&!first)return '';
+  const g=S.wgoal[weekStart(t)];
+  const title=first?'Nouveau mois, ardoise propre.':'Nouvelle semaine, ardoise propre.';
+  const sub=g?(g.prev!=null?`La semaine dernière : ${pct(g.prev)}. Objectif cette semaine : ${pct(g.target)}.`:`Objectif cette semaine : ${pct(g.target)}.`):'';
+  return `<div class="fs"><div><b>${title}</b><span>${sub} Ce qui s’est passé avant ne compte plus.</span></div><button class="x" data-a="fs-x" aria-label="Masquer">×</button></div>`}
 function vJour(){const t=todayKey();const hs=active();if(!hs.length)return vOnboard();
-  const daily=hs.filter(h=>h.freq!=='weekly'&&sched(h,t)),weekly=hs.filter(h=>h.freq==='weekly'),rest=hs.filter(h=>h.freq==='days'&&!sched(h,t));
+  const daily=hs.filter(h=>h.freq!=='weekly'&&schedRaw(h,t)),weekly=hs.filter(h=>h.freq==='weekly'),rest=hs.filter(h=>h.freq==='days'&&!schedRaw(h,t));
+  const MOM=[['morning','Matin'],['noon','Après-midi'],['evening','Soir'],['any','Dans la journée']];
+  const grouped=daily.some(h=>h.moment&&h.moment!=='any');
+  const list=grouped?MOM.map(([m,l])=>{const g=daily.filter(h=>(h.moment||'any')===m);return g.length?`<div class="mom">${l}</div>`+g.map(h=>row(h,t)).join(''):''}).join(''):daily.map(h=>row(h,t)).join('');
   const st=dayStat(t);const whys=hs.filter(h=>h.why);const why=whys.length?whys[daysBetween('2020-01-01',t)%whys.length].why:'';
   const wsMet=weekly.filter(h=>weekCount(h,weekStart(t))>=h.times).length;
-  return `${header()}${hero(st)}${why?`<p class="why">« ${esc(why)} »</p>`:''}
+  return `${header()}${freshStart()}${hero(st)}${weekLine()}${why?`<p class="why">« ${esc(why)} »</p>`:''}
   <section class="sec"><div class="sec-h"><h2>Aujourd’hui</h2><span>${st.d}/${st.n}</span></div>
-  ${daily.length?daily.map(h=>row(h,t)).join(''):'<p class="empty">Aucun protocole quotidien prévu aujourd’hui.</p>'}</section>
+  ${daily.length?list:'<p class="empty">Aucun protocole quotidien prévu aujourd’hui.</p>'}</section>
   ${weekly.length?`<section class="sec"><div class="sec-h"><h2>Objectifs de la semaine</h2><span>${wsMet}/${weekly.length} atteints</span></div>${weekly.map(h=>row(h,t,true)).join('')}</section>`:''}
   ${rest.length?`<p class="rest">En pause aujourd’hui : ${rest.map(h=>esc(h.icon+' '+h.name)).join(', ')}</p>`:''}
   <div style="margin-top:18px"><button class="btn ghost wide" data-a="new">Ajouter un protocole</button></div>`}
 
 /* ---- Analyse ---- */
-const heatColor=p=>p==null?'var(--line)':p===0?'rgba(var(--bad-rgb),.4)':`rgba(var(--acc-rgb),${(.2+.8*p).toFixed(2)})`;
+const heatColor=p=>p==null?'var(--line)':p===-1?'var(--muted)':p===0?'rgba(var(--bad-rgb),.4)':`rgba(var(--acc-rgb),${(.2+.8*p).toFixed(2)})`;
 function heat(weeks,pf,cell){cell=cell||13;const g=3,t=todayKey(),start=addDays(weekStart(t),-(weeks-1)*7);let s='';
   for(let w=0;w<weeks;w++)for(let d=0;d<7;d++){const k=addDays(start,w*7+d);if(k>t)continue;const p=pf(k);
-    s+=`<rect x="${20+w*(cell+g)}" y="${d*(cell+g)}" width="${cell}" height="${cell}" rx="4" style="fill:${heatColor(p)}${k===t?';stroke:var(--text);stroke-width:1.2':''}"><title>${dLabel(k)} : ${p==null?'aucun protocole':pct(p)}</title></rect>`}
+    s+=`<rect x="${20+w*(cell+g)}" y="${d*(cell+g)}" width="${cell}" height="${cell}" rx="4" style="fill:${heatColor(p)}${k===t?';stroke:var(--text);stroke-width:1.2':''}"><title>${dLabel(k)} : ${p==null?'aucun protocole':p===-1?'dispensé':pct(p)}</title></rect>`}
   const lbl=[[0,'L'],[2,'M'],[4,'V'],[6,'D']].map(([d,l])=>`<text x="0" y="${d*(cell+g)+cell-2}" style="fill:var(--muted);font-size:10px">${l}</text>`).join('');
   const W=20+weeks*(cell+g),H=7*(cell+g);return `<svg class="hm" viewBox="0 0 ${W} ${H}">${lbl}${s}</svg>`}
 function chart30(){const t=todayKey(),W=340,H=140,P=26,B=18,top=8;const days=[];for(let i=29;i>=0;i--){const k=addDays(t,-i);days.push({k,st:k<S.created?{n:0,p:null}:dayStat(k)})}
@@ -782,15 +850,25 @@ function vStats(){const hs=active();if(!hs.length)return header('Analyse')+'<p c
   <section class="sec"><div class="sec-h"><h2>Force par protocole</h2><span>Touche pour le détail</span></div><div class="hl">${sorted.map(x=>`<button data-a="detail" data-id="${x.h.id}"><span class="e">${esc(x.h.icon)}</span><span class="n">${esc(x.h.name)}</span><span class="s">${Math.round(x.s*100)}</span><span class="m"><span class="t"><i style="width:${x.s*100}%"></i></span>série ${x.k.cur} ${x.k.unit}, 30 j : ${pct(x.r)}</span></button>`).join('')}</div></section>`}
 
 function openDetail(id){const h=find(id);if(!h)return;const t=todayKey(),s=streakInfo(h),st=strength(h),r=habitRate(h,30);
-  const pf=k=>{if(!alive(h,k))return null;if(h.freq==='weekly')return done(h,k)?1:null;if(!sched(h,k))return null;const d=done(h,k);return d?1:(k===t?null:0)};
+  const pf=k=>{if(!alive(h,k))return null;if(isSkipped(h,k))return -1;if(h.freq==='weekly')return done(h,k)?1:null;if(!sched(h,k))return null;const d=done(h,k);return d?(isMini(h,k)?.45:1):(k===t?null:0)};
+  let sk30=0,mi30=0;for(let i=0;i<30;i++){const k=addDays(t,-i);if(isSkipped(h,k))sk30++;if(isMini(h,k))mi30++}
+  const au=S.auto[h.id]||[];let auto='';if(au.length){const W=340,H=70,pts=au.slice(-12);const x=i=>pts.length===1?W/2:8+i*(W-16)/(pts.length-1),y=v=>H-8-(H-16)*(v-1)/6;
+    auto=`<div class="card" style="margin-top:8px"><h3>Automatisme ressenti : ${autoLast(h)}/7</h3><svg class="chart" viewBox="0 0 ${W} ${H}"><line x1="0" x2="${W}" y1="${y(6)}" y2="${y(6)}" style="stroke:var(--line2)" stroke-dasharray="3 3"/>${pts.length>1?`<polyline points="${pts.map((p,i)=>x(i)+','+y(p.v)).join(' ')}" fill="none" style="stroke:var(--acc)" stroke-width="2"/>`:''}${pts.map((p,i)=>`<circle cx="${x(i)}" cy="${y(p.v)}" r="3.5" style="fill:var(--acc)"><title>${dLabel(p.d)} : ${p.v}/7</title></circle>`).join('')}</svg><div class="legend"><span>Pointillés : seuil d’habitude ancrée (6/7)</span></div></div>`}
+  const sr=schedRaw(h,t),acts=[];
+  if(sr&&!isSkipped(h,t)&&!done(h,t)&&h.mini&&h.type!=='avoid')acts.push(`<button class="btn ghost" data-a="mini" data-id="${h.id}">Version minimale faite</button>`);
+  if(isMini(h,t))acts.push(`<button class="btn ghost" data-a="unmini" data-id="${h.id}">Annuler la version minimale</button>`);
+  if(sr&&isSkipped(h,t))acts.push(`<button class="btn ghost" data-a="unskip" data-id="${h.id}">Annuler la dispense</button>`);
+  else if(sr&&!done(h,t)&&h.type!=='avoid'&&h.freq!=='weekly')acts.push(`<button class="btn ghost" data-a="skip" data-id="${h.id}">Dispenser aujourd’hui…</button>`);
   let qty='';if(h.type==='qty'){const W=340,H=90;const vals=[];for(let i=13;i>=0;i--){const k=addDays(t,-i);vals.push({k,v:alive(h,k)?val(h,k):null})}
     const mx=Math.max(h.target*1.2,...vals.map(x=>x.v||0));const bw=W/14;let b='';vals.forEach((x,i)=>{if(x.v==null)return;const hh=(H-14)*(x.v/mx);b+=`<rect x="${(i*bw+2).toFixed(1)}" y="${(H-14-hh).toFixed(1)}" width="${(bw-4).toFixed(1)}" height="${Math.max(1,hh).toFixed(1)}" rx="3" style="fill:${x.v>=h.target?'var(--acc)':'rgba(var(--acc-rgb),.35)'}"><title>${dLabel(x.k)} : ${fnum(x.v)} ${esc(h.unit)}</title></rect>`});
     const ty=H-14-(H-14)*(h.target/mx);qty=`<div class="card" style="margin-top:8px"><h3>Volume sur 14 jours</h3><svg class="chart" viewBox="0 0 ${W} ${H}">${b}<line x1="0" x2="${W}" y1="${ty}" y2="${ty}" style="stroke:var(--xp)" stroke-dasharray="4 3"/><text x="${W}" y="${H-2}" text-anchor="end" style="fill:var(--muted);font-size:9px">objectif ${fnum(h.target)} ${esc(h.unit)}</text></svg></div>`}
   openModal(`<div class="mh"><h3>${esc(h.icon)} ${esc(h.name)}</h3><button class="x" data-a="close" aria-label="Fermer">×</button></div>
   ${h.why?`<p class="dwhy">« ${esc(h.why)} »</p>`:''}
   <div class="dstats"><div><b>${Math.round(st*100)}</b><span>Force</span></div><div><b>${s.cur}</b><span>Série (${s.unit})</span></div><div><b>${s.best}</b><span>Record</span></div><div><b>${pct(r)}</b><span>30 jours</span></div></div>
-  <div class="card"><h3>16 dernières semaines</h3><div class="scroll-x">${heat(16,pf)}</div></div>${qty}
-  <p class="status">${typeTxt(h)}, ${freqTxt(h).toLowerCase()}, créé le ${dLabel(h.created)}. ${totalDone(h)} validations au total.</p>
+  ${h.anchor||h.mini?`<p class="status">${h.anchor?`Ancrage : après ${esc(h.anchor)}. `:''}${h.mini?`Version minimale : ${esc(h.mini)}.`:''}</p>`:''}
+  ${acts.length?`<div class="btns" style="margin-bottom:10px">${acts.join('')}</div>`:''}
+  <div class="card"><h3>16 dernières semaines</h3><div class="scroll-x">${heat(16,pf)}</div><div class="legend"><span><i style="background:var(--acc)"></i>Fait</span><span><i style="background:rgba(var(--acc-rgb),.56)"></i>Version minimale</span><span><i style="background:var(--muted)"></i>Dispensé</span><span><i style="background:rgba(var(--bad-rgb),.4)"></i>Manqué</span></div></div>${auto}${qty}
+  <p class="status">${typeTxt(h)}, ${freqTxt(h).toLowerCase()}, créé le ${dLabel(h.created)}. ${totalDone(h)} validations au total. Sur 30 jours : ${sk30} dispense${sk30>1?'s':''}, ${mi30} version${mi30>1?'s':''} minimale${mi30>1?'s':''}.</p>
   <div class="mf"><button class="btn ghost" data-a="close">Fermer</button><button class="btn" data-a="edit" data-id="${h.id}">Modifier</button></div>`)}
 
 /* ---- Succès ---- */
@@ -842,7 +920,28 @@ function vConfig(){const hs=active(),ar=S.habits.filter(h=>h.archived);
   <li>Craquer sur un protocole à éviter coûte 8 PV et 24 XP par niveau de difficulté, immédiatement.</li>
   <li>Objectif hebdo : bonus de 30 XP par niveau de difficulté s’il est atteint, 5 PV par séance manquante le dimanche soir.</li>
   <li>À 0 PV, la coque est détruite : tu perds un niveau et la moitié de tes crédits.</li>
-  <li>Un bouclier en stock absorbe automatiquement une journée de dégâts.</li></ul></details></section>
+  <li>Un bouclier en stock absorbe automatiquement une journée de dégâts.</li>
+  <li>Dispense : 2 par semaine maximum, une par protocole et par semaine, jamais deux fois de suite, jamais pendant les 7 premiers jours, jamais pour un protocole à éviter ni juste après un oubli. Elle coûte ◈ 25 puis ◈ 50 et demande une raison et un plan de rattrapage. Elle s’ouvre en touchant le nom du protocole.</li>
+  <li>Version minimale : la série continue, à 50 % de l’XP.</li>
+  <li>Retour : après un oubli ou une dispense, la validation suivante rapporte le double.</li>
+  <li>Paliers de série à 3, 7, 14, 21, 30, 50, 66, 100 jours et plus : bonus d’XP.</li>
+  <li>Écart évité : chaque jour tenu sur un protocole à éviter rapporte 5 XP par niveau de difficulté à la clôture.</li></ul></details></section>
+  <section class="sec"><details class="rules"><summary>La science derrière l’app</summary><ul>
+  <li><b>Répétition et oubli unique.</b> Lally et al. (2010, European Journal of Social Psychology) : il faut 18 à 254 jours pour qu’un comportement devienne automatique, 66 en médiane. Rater une occasion isolée n’a pas d’effet notable sur la courbe. D’où la dispense possible, mais jamais deux fois de suite.</li>
+  <li><b>Marge de secours coûteuse.</b> Sharif et Shu (2017, Journal of Marketing Research) : un objectif qui prévoit quelques « réserves d’urgence » limitées et coûteuses entretient mieux la persévérance qu’un objectif rigide. D’où le quota, le coût croissant et la raison obligatoire.</li>
+  <li><b>Intentions de mise en œuvre.</b> Gollwitzer (1999) ; méta-analyse de Gollwitzer et Sheeran (2006, 94 études) : formuler « quand X, je fais Y » améliore nettement le passage à l’action. D’où l’ancrage « Après… » et le plan de rattrapage.</li>
+  <li><b>Ancrer sur une routine existante.</b> Judah, Gardner et Aunger (2013) : le fil dentaire s’automatise mieux placé après le brossage qu’avant. D’où les moments de la journée et l’ancrage.</li>
+  <li><b>Récompenser le retour.</b> Milkman et al. (2021, Nature), méga-étude sur plus de 60 000 membres de salles de sport : parmi les interventions les plus efficaces, une récompense supplémentaire pour revenir après une séance manquée. D’où le bonus de retour ×2.</li>
+  <li><b>Effet nouveau départ.</b> Dai, Milkman et Riis (2014, Management Science) : les débuts de semaine et de mois relancent la motivation. D’où la bannière du lundi et l’objectif hebdo.</li>
+  <li><b>Gradient d’objectif.</b> Kivetz, Urminsky et Zheng (2006) : l’effort accélère à l’approche du but. D’où « plus qu’un » et les paliers de série.</li>
+  <li><b>Aversion à la perte.</b> Kahneman et Tversky (1979) : une perte pèse plus qu’un gain équivalent. D’où les PV.</li>
+  <li><b>Récompenses variables.</b> Ferster et Skinner (1957) ; Schultz, Dayan et Montague (1997) sur la dopamine et l’erreur de prédiction de récompense : l’imprévu accroche davantage. D’où les critiques et les jackpots.</li>
+  <li><b>Suivre ses progrès.</b> Harkin et al. (2016, Psychological Bulletin, 138 études) : surveiller sa progression aide à atteindre ses objectifs. D’où l’onglet Analyse.</li>
+  <li><b>Mesurer l’automatisme.</b> Gardner et al. (2012) : l’indice SRBAI mesure à quel point un geste se fait sans y penser. D’où le bilan hebdo, en version simplifiée à une question.</li>
+  <li><b>Identité.</b> Bryan et al. (2011, PNAS) : « être un votant » mobilise plus que « voter ». D’où la phrase « Je suis quelqu’un qui… ».</li>
+  <li><b>Effet de transgression.</b> Marlatt et Gordon (1985) ; Adams et Leary (2007) : la culpabilité après un écart pousse à abandonner, une réponse bienveillante limite la rechute. D’où le message après un écart et l’absence de dispense pour les protocoles à éviter.</li>
+  <li><b>Version minimale.</b> Inspirée de Tiny Habits de BJ Fogg (2019) : idée cohérente avec le rôle de la répétition, mais moins testée expérimentalement que les autres principes.</li>
+  </ul></details></section>
   <section class="sec"><button class="btn danger wide" data-a="reset">Tout réinitialiser</button></section>`}
 
 /* ============ Éditeur ============ */
@@ -852,9 +951,9 @@ function seg(f,opts,cur){return `<div class="seg">${opts.map(([v,l])=>`<button c
 function diffHint(e){const d=e.diff;if(e.type==='avoid')return `Craquer : −${8*d} PV et −${24*d} XP`;
   if(e.freq==='weekly')return `+${10*d} XP par séance, bonus de ${30*d} XP si l’objectif est atteint, −${5*d} PV par séance manquante`;
   return `+${10*d} XP par validation, −${6*d} PV par oubli`}
-function openEditor(h,tpl){ED=h?JSON.parse(JSON.stringify(h)):Object.assign({id:null,name:'',icon:'⚡',type:'bool',target:1,step:1,unit:'',freq:'daily',days:[1,2,3,4,5],times:3,diff:2,why:''},tpl||{});renderEditor()}
+function openEditor(h,tpl){ED=h?JSON.parse(JSON.stringify(h)):Object.assign({id:null,name:'',icon:'⚡',type:'bool',target:1,step:1,unit:'',freq:'daily',days:[1,2,3,4,5],times:3,diff:2,why:'',moment:'any',anchor:'',mini:''},tpl||{});renderEditor()}
 function syncEd(){if(!ED)return;const g=id=>{const el=document.getElementById(id);return el?el.value:null};
-  const n=g('f-name');if(n!==null)ED.name=n;const w=g('f-why');if(w!==null)ED.why=w;
+  const n=g('f-name');if(n!==null)ED.name=n;const an=g('f-anchor');if(an!==null)ED.anchor=an.trim();const mn=g('f-mini');if(mn!==null)ED.mini=mn.trim();const w=g('f-why');if(w!==null)ED.why=w;
   const t=g('f-target');if(t!==null)ED.target=parseFloat(String(t).replace(',','.'))||0;const u=g('f-unit');if(u!==null)ED.unit=u;
   const s=g('f-step');if(s!==null)ED.step=parseFloat(String(s).replace(',','.'))||0}
 function renderEditor(){const e=ED;
@@ -867,6 +966,9 @@ function renderEditor(){const e=ED;
   ${e.freq==='days'?`<div class="days">${[1,2,3,4,5,6,0].map(d=>`<button class="${e.days.includes(d)?'on':''}" data-a="ed-day" data-v="${d}">${DAYS[d]}</button>`).join('')}</div>`:''}
   ${e.freq==='weekly'?`<div class="stepper"><button data-a="ed-times" data-v="-1" aria-label="Moins">−</button><b>${e.times} fois par semaine</b><button data-a="ed-times" data-v="1" aria-label="Plus">+</button></div>`:''}
   <div class="fl">Difficulté${seg('diff',[[1,'Facile'],[2,'Moyen'],[3,'Dur']],e.diff)}<small class="hint">${diffHint(e)}</small></div>
+  <div class="fl">Moment de la journée${seg('moment',[['morning','Matin'],['noon','Après-midi'],['evening','Soir'],['any','Libre']],e.moment||'any')}</div>
+  <label class="fl">Ancrage : juste après…<input id="f-anchor" value="${esc(e.anchor||'')}" maxlength="50" placeholder="mon café du matin"><small class="hint">« Après mon café, je médite » : lier un protocole à une routine existante augmente nettement les chances de le faire.</small></label>
+  ${e.type!=='avoid'?`<label class="fl">Version minimale, pour les jours difficiles<input id="f-mini" value="${esc(e.mini||'')}" maxlength="50" placeholder="2 minutes, 1 page, 5 pompes"><small class="hint">Elle garde ta série vivante à 50 % de l’XP. Faire petit vaut mieux que ne rien faire.</small></label>`:''}
   <label class="fl">Pourquoi, l’identité visée<input id="f-why" value="${esc(e.why)}" maxlength="90" placeholder="Je suis quelqu’un qui prend soin de son corps"></label>
   <div class="mf">${e.id?'<button class="btn ghost" data-a="ed-archive">Archiver</button>':''}<button class="btn" data-a="ed-save">Enregistrer</button></div>`)}
 function saveEditor(){syncEd();const e=ED;e.name=e.name.trim();
@@ -878,6 +980,37 @@ function saveEditor(){syncEd();const e=ED;e.name=e.name.trim();
   closeModal();afterAny();toast(e.name+' enregistré','good')}
 function afterAny(){const t=todayKey();const r=perfectCheck(t);checkBadges();save();render();if(r==='new')celebratePerfect()}
 
+/* ============ Dispenses & version minimale ============ */
+let SK=null;const REASONS=['Malade','Voyage','Imprévu','Récupération'];
+function openSkip(id){const h=find(id),t=todayKey();if(!SK||SK.id!==id)SK={id,reason:'',plan:''};const c=canSkip(h,t);const left=MAX_SKIPS-weekSkips(weekStart(t));
+  const mini=h.mini?`<div class="card" style="margin-bottom:12px"><h3>Avant de passer : la version minimale</h3><p style="margin:0 0 10px">« ${esc(h.mini)} » garde ta série vivante. Les jours difficiles, faire petit entretient le lien entre le moment et le geste.</p><button class="btn wide" data-a="mini" data-id="${h.id}">Je fais la version minimale</button></div>`
+    :`<p class="status">Astuce : ajoute une version minimale à ce protocole (Modifier) pour garder ta série les jours difficiles.</p>`;
+  let body;
+  if(!c.ok)body=`<div class="card"><h3>Dispense impossible</h3><p style="margin:0">${c.why}</p></div><div class="mf"><button class="btn wide" data-a="close">Compris</button></div>`;
+  else body=`<div class="fl">Raison<div class="days" style="margin:5px 0 0">${REASONS.map(r=>`<button class="${SK.reason===r?'on':''}" data-a="sk-reason" data-v="${r}">${r}</button>`).join('')}</div></div>
+    <label class="fl">Ton plan de rattrapage : quand et où ?<input id="f-plan" value="${esc(SK.plan)}" maxlength="60" placeholder="Demain à 7 h, juste après mon café"></label>
+    <p class="status">Coût : ◈ ${skipCost()}. Après celle-ci : ${left-1} dispense${left-1>1?'s':''} cette semaine. Ta série est conservée, mais la prochaine fois ce protocole ne pourra pas être dispensé : il comptera double (bonus de retour ×2).</p>
+    <div class="mf"><button class="btn ghost" data-a="close">Je le fais finalement</button><button class="btn" data-a="sk-go">Dispenser</button></div>`;
+  openModal(`<div class="mh"><h3>Dispenser ${esc(h.icon)} ${esc(h.name)}</h3><button class="x" data-a="close" aria-label="Fermer">×</button></div>${(h.type!=='avoid'&&!done(h,t))?mini:''}${body}`)}
+function confirmSkip(){const el=document.getElementById('f-plan');if(el)SK.plan=el.value.trim();const h=find(SK.id),t=todayKey();
+  if(!SK.reason)return toast('Choisis une raison','bad');if(SK.plan.length<4)return toast('Écris ton plan de rattrapage : quand et où','bad');
+  const c=canSkip(h,t);if(!c.ok)return toast('Dispense impossible','bad');const cost=skipCost();
+  S.player.cr-=cost;S.skips[t]=S.skips[t]||{};S.skips[t][h.id]={reason:SK.reason,plan:SK.plan,cost};S.c.skips++;SK=null;closeModal();afterAny();toast('Dispense enregistrée. Rendez-vous : '+S.skips[t][h.id].plan,'good')}
+function unskip(id){const t=todayKey();const sk=S.skips[t]&&S.skips[t][id];if(!sk)return;S.player.cr+=sk.cost||0;delete S.skips[t][id];S.c.skips=Math.max(0,S.c.skips-1);closeModal();afterAny();toast('Dispense annulée, crédits remboursés','good')}
+function actMini(id){const h=find(id),t=todayKey();if(done(h,t))return;S.mini[t]=S.mini[t]||{};S.mini[t][id]=true;const a=award(t,h,true);closeModal();afterCheck(h,a,`.row [data-id="${id}"]`,false)}
+function unMini(id){const h=find(id),t=todayKey();if(!isMini(h,t))return;award(t,h,false);delete S.mini[t][id];if(S.awards[t])delete S.awards[t][id];closeModal();afterAny()}
+
+/* ============ Bilan d'automatisme (SRBAI, Gardner et al. 2012) ============ */
+let AU={};
+const autoDue=()=>{const t=todayKey();if(S.autoSnooze===t)return [];if(S.lastAuto&&daysBetween(S.lastAuto,t)<7)return [];return active().filter(h=>daysBetween(h.created,t)>=7)};
+function openAuto(){const hs=autoDue();if(!hs.length)return;
+  queueCelebrate(autoHtml(hs))}
+function autoHtml(hs){return `<div class="mh"><h3>Bilan d’automatisme</h3></div><p class="status" style="margin-top:-6px">Une fois par semaine. Pour chaque protocole : à quel point le fais-tu sans avoir à y penser ? 1 = effort conscient, 7 = pilote automatique. Suivre cette sensation montre la courbe réelle de formation de l’habitude.</p>
+  ${hs.map(h=>`<div class="au"><div>${esc(h.icon)} ${esc(h.name)}</div><div class="au-s">${[1,2,3,4,5,6,7].map(v=>`<button class="${AU[h.id]===v?'on':''}" data-a="au-v" data-id="${h.id}" data-v="${v}">${v}</button>`).join('')}</div></div>`).join('')}
+  <div class="mf"><button class="btn ghost" data-a="au-later">Plus tard</button><button class="btn" data-a="au-go">Enregistrer</button></div>`}
+function saveAuto(){const t=todayKey();const ids=Object.keys(AU);if(!ids.length)return toast('Note au moins un protocole','bad');
+  ids.forEach(id=>{(S.auto[id]=S.auto[id]||[]).push({d:t,v:AU[id]})});S.lastAuto=t;gainXp(10*ids.length);AU={};closeModal();checkBadges();save();render();toast(`Bilan enregistré : +${10*ids.length} XP`,'good')}
+
 /* ============ Actions sur la journée ============ */
 function celebratePerfect(){SFX.perfect();buzz([30,40,30,40,80]);flash('rgba(var(--acc-rgb),.6)');const ps=perfStreak();
   queueCelebrate(`<div class="cel"><p>Tous les protocoles sont validés</p><div class="big">100 %</div><h3>Jour parfait</h3><p>Série de jours parfaits : ${ps.cur}${ps.cur>=ps.best&&ps.cur>1?' (record)':''}</p><div class="gain">+50 XP, +10 crédits, 4 PV réparés cette nuit</div><button class="btn wide" data-a="close">Continuer</button></div>`)}
@@ -887,15 +1020,18 @@ function afterCheck(h,a,sel,undo){const t=todayKey();if(h.freq==='weekly'){const
     else if(a.m===3){SFX.crit();buzz([30,30,60]);flash('rgba(255,194,75,.45)');sparks(el,16,true);floatAt(el,`Critique ×3  +${a.xp} XP`,'crit')}
     else{SFX.check();buzz(25);sparks(el,9);floatAt(el,`+${a.xp} XP`)}}
   else if(undo){SFX.undo()}
+  if(a&&a.rb)setTimeout(()=>toast(`Retour réussi : gains doublés (+${a.xp} XP)`,'crit'),250);
+  if(a&&h.freq!=='weekly'){const sc=streakInfo(h).cur;const key=h.id+':'+sc;if(MIL.includes(sc)&&!S.miles[key]){S.miles[key]=t;gainXp(2*sc);save();setTimeout(()=>toast(`${h.icon} Palier de ${sc} jours atteint : +${2*sc} XP`,'crit'),500)}
+    else if(h.why&&Math.random()<.3)setTimeout(()=>toast(`Un vote de plus pour : « ${h.why} »`,'good'),600)}
   if(pr==='new')setTimeout(celebratePerfect,450);else if(pr==='again')toast('Jour parfait rétabli','good')}
-function actToggle(id){const h=find(id),t=todayKey();S.log[t]=S.log[t]||{};const was=done(h,t);S.log[t][id]=was?0:1;const a=award(t,h,!was);afterCheck(h,a,`[data-a="tog"][data-id="${id}"]`,was)}
+function actToggle(id){const h=find(id),t=todayKey();S.log[t]=S.log[t]||{};const was=done(h,t);S.log[t][id]=was?0:1;const a=award(t,h,!was);if(was&&S.mini[t])delete S.mini[t][id];afterCheck(h,a,`[data-a="tog"][data-id="${id}"]`,was)}
 function actQty(id,dir){const h=find(id),t=todayKey();S.log[t]=S.log[t]||{};const was=done(h,t);
   const v=Math.max(0,Math.round(((S.log[t][id]||0)+dir*h.step)*1000)/1000);S.log[t][id]=v;const now=done(h,t);let a=null;if(now!==was)a=award(t,h,now);
   if(!a&&now===was){save();render();if(dir>0){const el=document.querySelector(`[data-a="inc"][data-id="${id}"]`);floatAt(el,'+'+fnum(h.step)+' '+h.unit);tone([[520+Math.min(400,v/h.target*400),.06,0,'sine',.04]])}return}
   afterCheck(h,a,`[data-a="inc"][data-id="${id}"]`,!now)}
 function actSlip(id){const h=find(id),t=todayKey();S.log[t]=S.log[t]||{};S.awards[t]=S.awards[t]||{};const sl=val(h,t)>=1;
   if(!sl){S.log[t][id]=1;const dmg=8*h.diff;const a={hp:dmg,xp:dmg*3,on:true};S.awards[t][id]=a;gainXp(-a.xp);hurt(dmg);
-    perfectCheck(t);save();render();SFX.slip();buzz([120,60,120]);flash('rgba(var(--bad-rgb),.6)');const el=document.querySelector(`[data-a="slip"][data-id="${id}"]`);floatAt(el,`−${dmg} PV  −${a.xp} XP`,'bad')}
+    perfectCheck(t);save();render();SFX.slip();buzz([120,60,120]);flash('rgba(var(--bad-rgb),.6)');const el=document.querySelector(`[data-a="slip"][data-id="${id}"]`);floatAt(el,`−${dmg} PV  −${a.xp} XP`,'bad');setTimeout(()=>toast('Un écart n’efface pas tes progrès. Ce qui compte : la prochaine occasion.'),900)}
   else{S.log[t][id]=0;const a=S.awards[t][id];if(a&&a.on&&a.hp){a.on=false;gainXp(a.xp,true);heal(a.hp)}delete S.awards[t][id];SFX.undo();afterAny()}}
 
 function buy(kind,id){const cr=S.player.cr;
@@ -934,7 +1070,7 @@ function importGo(){try{const o=JSON.parse($('#imp').value);if(!o||!Array.isArra
 /* ============ Événements ============ */
 document.addEventListener('click',e=>{
   const nb=e.target.closest('.nav button');if(nb){TAB=nb.dataset.tab;render();window.scrollTo(0,0);return}
-  if(e.target.id==='modal'){if(!ED)closeModal();return}
+  if(e.target.id==='modal'){if(!ED&&!$('#modal-box .au'))closeModal();return}
   const b=e.target.closest('[data-a]');if(!b||b.disabled)return;const a=b.dataset.a,id=b.dataset.id;
   switch(a){
     case 'tog':return actToggle(id);
@@ -957,6 +1093,16 @@ document.addEventListener('click',e=>{
     case 'mv':{const hs=active();const i=hs.findIndex(h=>h.id===id),j=i+(+b.dataset.v);if(j<0||j>=hs.length)return;const A=S.habits.indexOf(hs[i]),B=S.habits.indexOf(hs[j]);[S.habits[A],S.habits[B]]=[S.habits[B],S.habits[A]];save();return render()}
     case 'set':S.settings[id]=!S.settings[id];save();return render();
     case 'theme':S.settings.theme=id;save();return render();
+    case 'skip':SK=null;return openSkip(id);
+    case 'sk-reason':{const el=document.getElementById('f-plan');if(el)SK.plan=el.value;SK.reason=b.dataset.v;return openSkip(SK.id)}
+    case 'sk-go':return confirmSkip();
+    case 'unskip':return unskip(id);
+    case 'mini':return actMini(id);
+    case 'unmini':return unMini(id);
+    case 'fs-x':S.fsDismiss=todayKey();save();return render();
+    case 'au-v':AU[id]=+b.dataset.v;$('#modal-box').innerHTML=autoHtml(autoDue());return;
+    case 'au-go':return saveAuto();
+    case 'au-later':S.autoSnooze=todayKey();AU={};save();return closeModal();
     case 'buy-shield':return buy('shield');
     case 'buy-repair':return buy('repair');
     case 'buy-up':return buy('up',id);
@@ -969,13 +1115,13 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modalOpen)closeModal()});
 let CUR=todayKey();
-function tick(){if(todayKey()!==CUR){CUR=todayKey();runProcess();render();return}const c=$('#clock');if(c)c.innerHTML=clockHtml()}
+function tick(){if(todayKey()!==CUR){CUR=todayKey();runProcess();if(ensureWeekGoal())save();render();openAuto();return}const c=$('#clock');if(c)c.innerHTML=clockHtml()}
 setInterval(tick,30000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)tick()});
 
 try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if((S.settings.theme||'auto')==='auto')applyTheme()})}catch(e){}
 /* ============ Démarrage ============ */
-loadLocal();runProcess();render();initRemote();
+loadLocal();runProcess();if(ensureWeekGoal())save();render();initRemote();setTimeout(openAuto,600);
 if('serviceWorker' in navigator&&location.protocol==='https:'){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{})})}
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 </script>
